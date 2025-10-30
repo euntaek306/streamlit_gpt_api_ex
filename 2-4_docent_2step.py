@@ -66,53 +66,36 @@ st.title("AI 도슨트: 이미지를 설명해드려요!")
 # 선택 탭 추가
 tab1, tab2 = st.tabs(["이미지 파일 업로드", "이미지 URL 입력"])
 
-# with tab1:
-#     uploaded_file = st.file_uploader("이미지를 업로드하세요", type=["jpg", "jpeg", "png"])
-#     if uploaded_file is not None:
-#         st.image(uploaded_file, width=300)
-#         if st.button("해설", key="file_button"):
-#             image = Image.open(uploaded_file)  # PIL 이미지 열기
-#             result = ai_describe(image, is_url=False)
-#             st.success(result)
+import streamlit.components.v1 as components
 
-# with tab2:
-#     input_url = st.text_area("이미지 URL을 입력하세요", height=70)
-#     if input_url:
-#         st.image(input_url, width=300)
-#     st.info("💡 이미지를 붙여넣은 후 박스 밖을 클릭하거나 ' crtl+c' 버튼을 눌러주세요.")
-    
-#     if input_url:
-#         if st.button("해설", key="url_button"):
-#             result = ai_describe(input_url, is_url=True)
-#             st.success(result)
-
-# with tab1:
-#     # 세션 상태 초기화
-#     if 'uploaded_images' not in st.session_state:
-#         st.session_state.uploaded_images = []
-    
-#     # 저장된 모든 이미지와 해설 표시
-#     for idx, item in enumerate(st.session_state.uploaded_images):
-#         st.image(item['image'], width=300)
-#         st.success(item['description'])
-#         st.markdown("---")
-    
-#     # 새 이미지 업로드 영역 (항상 표시)
-#     uploaded_file = st.file_uploader("이미지를 업로드하세요", type=["jpg", "jpeg", "png"], key=f"uploader_{len(st.session_state.uploaded_images)}")
-    
-#     if uploaded_file is not None:
-#         image = Image.open(uploaded_file)
-#         st.image(image, width=300)
+# OpenAI로 유사 이미지 생성 함수 추가
+def generate_similar_images_simple(description):
+    """해설 내용을 바탕으로 유사한 이미지 3개 생성"""
+    try:
+        # 해설에서 주요 키워드 추출
+        main_subject = description.split('.')[0]  # 첫 문장 사용
         
-#         if st.button("해설", key=f"file_button_{len(st.session_state.uploaded_images)}"):
-#             result = ai_describe(image, is_url=False)
-#             # 이미지와 해설을 세션에 저장
-#             st.session_state.uploaded_images.append({
-#                 'image': image,
-#                 'description': result
-#             })
-#             # 페이지 새로고침으로 업로드된 파일 초기화
-#             st.rerun()
+        similar_images = []
+        variations = [
+            f"{main_subject}, different angle",
+            f"{main_subject}, different lighting",
+            f"{main_subject}, different perspective"
+        ]
+        
+        for variation in variations:
+            response = client.images.generate(
+                model="dall-e-3",
+                prompt=variation,
+                size="1024x1024",
+                quality="standard",
+                n=1,
+            )
+            similar_images.append(response.data[0].url)
+        
+        return similar_images
+    except Exception as e:
+        st.error(f"이미지 생성 실패: {e}")
+        return []
 
 with tab1:
     # 세션 상태 초기화
@@ -124,16 +107,29 @@ with tab1:
         st.image(item['image'], width=300)
         
         # 해설과 복사 버튼
-        col1, col2 = st.columns([20, 1])
+        col1, col2 = st.columns([20, 10])
         with col1:
             st.success(item['description'])
         with col2:
-            st.markdown(f"""
-                <button onclick="navigator.clipboard.writeText(`{item['description'].replace('`', '').replace("'", "\\'")}`);" 
-                        style="padding: 5px 8px; font-size: 12px; cursor: pointer; border: 1px solid #ccc; border-radius: 3px; background: white;">
+            # JavaScript로 클립보드 복사 기능 구현
+            copy_js = f"""
+                <script>
+                function copyText{idx}() {{
+                    const text = `{item['description'].replace('`', '').replace('"', '\\"').replace("'", "\\'")}`;
+                    navigator.clipboard.writeText(text).then(function() {{
+                        alert('해설이 복사되었습니다!');
+                    }}, function(err) {{
+                        console.error('복사 실패:', err);
+                    }});
+                }}
+                </script>
+                <button onclick="copyText{idx}()" 
+                        style="padding: 5px 8px; font-size: 12px; cursor: pointer; 
+                               border: 1px solid #ccc; border-radius: 3px; background: white;">
                     📋
                 </button>
-                """, unsafe_allow_html=True)
+            """
+            components.html(copy_js, height=40)
         
         # 추천 서비스 섹션
         if 'recommendations' in item:
@@ -153,22 +149,18 @@ with tab1:
         st.image(image, width=300)
         
         if st.button("해설", key=f"file_button_{len(st.session_state.uploaded_images)}"):
-            result = ai_describe(image, is_url=False)
-            
-            # 유사 이미지 추천 생성 (예시 - 실제로는 AI API나 이미지 검색 API 사용)
-            # 여기서는 더미 이미지로 예시를 보여드립니다
-            recommendations = [
-                image,  # 임시로 같은 이미지 사용 (실제로는 유사 이미지 URL이나 파일)
-                image,
-                image
-            ]
-            
-            # 이미지, 해설, 추천을 세션에 저장
-            st.session_state.uploaded_images.append({
-                'image': image,
-                'description': result,
-                'recommendations': recommendations
-            })
+            with st.spinner("이미지 분석 및 유사 이미지 생성 중..."):
+                result = ai_describe(image, is_url=False)
+                
+                # OpenAI로 유사 이미지 생성
+                recommendations = generate_similar_images_simple(result)
+                
+                # 이미지, 해설, 추천을 세션에 저장
+                st.session_state.uploaded_images.append({
+                    'image': image,
+                    'description': result,
+                    'recommendations': recommendations
+                })
             st.rerun()
 
 with tab2:
